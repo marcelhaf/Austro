@@ -1,0 +1,22 @@
+[package]
+name = "austro"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+secp256k1 = { version = "0.29", features = ["rand-std"] }
+hex = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros", "sync", "time"] }
+libp2p = { version = "0.53", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio"] }
+libp2p-swarm = { version = "0.44", features = ["macros"] }
+futures = "0.3"
+sled = "0.34"
+aes-gcm = "0.10"
+rand = "0.8"
+axum = { version = "0.7", features = ["json"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+

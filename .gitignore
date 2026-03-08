@@ -1,0 +1,23 @@
+# Rust build artifacts
+/target
+Cargo.lock
+
+# Node data directories (chain + wallet storage)
+node*/
+!node*/.gitkeep
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+*.pem
+*.key
+
+# Logs
+*.log
