@@ -137,7 +137,7 @@ impl Transaction {
     // Sign all inputs with the given private key
     pub fn sign_inputs(&mut self, wallet: &crate::models::wallet::Wallet) {
         let msg_bytes = hex::decode(&self.id).unwrap();
-        let sig = wallet.sign(&msg_bytes);
+        let sig = wallet.sign_msg(&msg_bytes);
         for input in &mut self.vin {
             input.signature = sig.clone();
             input.pub_key = wallet.public_key.serialize().to_vec();

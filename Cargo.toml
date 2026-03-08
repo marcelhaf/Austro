@@ -19,4 +19,4 @@ aes-gcm = "0.10"
 rand = "0.8"
 axum = { version = "0.7", features = ["json"] }
 tower-http = { version = "0.5", features = ["cors", "fs"] }
-
+bs58 = "0.5"

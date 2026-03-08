@@ -74,6 +74,8 @@ pub async fn run_node(
     println!("  newwallet <name>");
     println!("  selectwallet <name>");
     println!("  listwallets");
+    println!("  exportwallet <name> [wif|json]");
+    println!("  importwallet <file> [name]");
     println!("  mempool");
     println!("  diff");
     println!("  peers");
@@ -478,6 +480,31 @@ async fn handle_command(
                 let bal = chain.get_balance(wallet);
                 let active = if name == wm.selected { " ← active" } else { "" };
                 println!("  {:12} | {} | {} AUSTRO{}", name, &wallet.address()[..16], bal, active);
+            }
+        }
+
+        "exportwallet" => {
+            if parts.len() < 2 { println!("Usage: exportwallet <name> [wif|json]"); return; }
+            let name = parts[1];
+            let format = if parts.len() == 3 { parts[2] } else { "json" };
+            let wm = wallet_manager.lock().unwrap();
+            match wm.export_wallet(name, format) {
+                Ok(content) => {
+                    println!("Wallet '{}' exported to {}.{}", name, format.to_uppercase(), format);
+                    println!("Content: {}", content);
+                }
+                Err(e) => println!("Export error: {}", e),
+            }
+        }
+
+        "importwallet" => {
+            if parts.len() < 2 { println!("Usage: importwallet <file> [name]"); return; }
+            let file_path = parts[1];
+            let name = if parts.len() == 3 { Some(parts[2]) } else { None };
+            let mut wm = wallet_manager.lock().unwrap();
+            match wm.import_wallet(file_path, name) {
+                Ok(addr) => println!("Wallet imported\nAddress: {}", addr),
+                Err(e) => println!("Import error: {}", e),
             }
         }
 

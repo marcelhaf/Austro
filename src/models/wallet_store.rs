@@ -1,178 +1,123 @@
-use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Key, Nonce,
-};
-use rand::RngCore;
-use sha2::{Digest, Sha256};
+use std::path::Path;
 
 use crate::models::wallet::Wallet;
 
-const WALLETS_DIR: &str = "wallets";
-const NONCE_LEN: usize = 12;
-
-fn derive_key(data_dir: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"austro-wallet-v2:");
-    hasher.update(data_dir.as_bytes());
-    hasher.finalize().into()
-}
-
+#[derive(Debug)]
 pub struct WalletManager {
-    data_dir: PathBuf,
-    key: [u8; 32],
-    pub wallets: HashMap<String, Wallet>,
     pub selected: String,
+    wallets: std::collections::HashMap<String, Wallet>,
+    data_dir: String,
 }
 
 impl WalletManager {
     pub fn new(data_dir: &str) -> Self {
-        let wallets_dir = Path::new(data_dir).join(WALLETS_DIR);
-        fs::create_dir_all(&wallets_dir).expect("Create wallets dir");
-
-        let key = derive_key(data_dir);
-        let mut manager = WalletManager {
-            data_dir: PathBuf::from(data_dir),
-            key,
-            wallets: HashMap::new(),
-            selected: String::new(),
+        let mut wm = WalletManager {
+            selected: "default".to_string(),
+            wallets: std::collections::HashMap::new(),
+            data_dir: data_dir.to_string(),
         };
-
-        manager.scan_wallets();
-
-        // If no wallets exist, create default
-        if manager.wallets.is_empty() {
-            manager.create_wallet("default").expect("Create default wallet");
+        wm.load_wallets();
+        if wm.wallets.is_empty() {
+            let default = Wallet::new();
+            wm.create_wallet_raw("default", default);
         }
-
-        if manager.selected.is_empty() {
-            manager.selected = manager.wallets.keys().next().unwrap().clone();
-        }
-
-        manager
+        wm
     }
 
-    pub fn list_wallets(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.wallets.keys().cloned().collect();
-        names.sort();
-        names
+    fn load_wallets(&mut self) {
+        let wallet_dir = format!("{}/wallets", self.data_dir);
+        if !Path::new(&wallet_dir).exists() {
+            fs::create_dir_all(&wallet_dir).expect("Create wallets dir");
+            return;
+        }
+        for entry in fs::read_dir(&wallet_dir).expect("Read wallets dir") {
+            let entry = entry.expect("Read wallet entry");
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "json") {
+                let name = path.file_stem().unwrap().to_string_lossy().to_string();
+                match self.load_wallet_json(&path) {
+                    Ok(wallet) => {
+                        self.wallets.insert(name.clone(), wallet);
+                    }
+                    Err(e) => eprintln!("Failed to load wallet {}: {}", name, e),
+                }
+            }
+        }
+    }
+
+    fn load_wallet_json(&self, path: &std::path::Path) -> Result<Wallet, String> {
+        let json = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        Wallet::from_json(&json)
+    }
+
+    pub fn create_wallet(&mut self, name: &str) -> Result<String, String> {
+        if self.wallets.contains_key(name) {
+            return Err("Wallet exists".to_string());
+        }
+        let wallet = Wallet::new();
+        self.create_wallet_raw(name, wallet)
+    }
+
+    fn create_wallet_raw(&mut self, name: &str, wallet: Wallet) -> Result<String, String> {
+        self.wallets.insert(name.to_string(), wallet.clone());
+
+        let wallet_dir = format!("{}/wallets", self.data_dir);
+        let path = format!("{}/{}.json", wallet_dir, name);
+        let json = wallet.to_json();
+        fs::write(&path, json).map_err(|e| e.to_string())?;
+
+        Ok(wallet.address())
     }
 
     pub fn select_wallet(&mut self, name: &str) -> Result<(), String> {
-        if self.wallets.contains_key(name) {
-            self.selected = name.to_string();
-            Ok(())
-        } else {
-            Err(format!("Wallet '{}' not found", name))
+        if !self.wallets.contains_key(name) {
+            return Err("Wallet not found".to_string());
         }
+        self.selected = name.to_string();
+        Ok(())
     }
 
     pub fn current_wallet(&self) -> &Wallet {
-        self.wallets.get(&self.selected).expect("Selected wallet exists")
+        self.wallets.get(&self.selected).expect("Active wallet missing")
     }
 
     pub fn get_wallet(&self, name: &str) -> Option<&Wallet> {
         self.wallets.get(name)
     }
 
-    pub fn create_wallet(&mut self, name: &str) -> Result<String, String> {
-        if self.wallets.contains_key(name) {
-            return Err(format!("Wallet '{}' already exists", name));
-        }
-        let wallet = Wallet::new();
-        let address = wallet.address();
-        self.save_wallet_to_disk(name, &wallet)?;
-        self.wallets.insert(name.to_string(), wallet);
-
-        if self.selected.is_empty() {
-            self.selected = name.to_string();
-        }
-
-        Ok(address)
+    pub fn list_wallets(&self) -> Vec<String> {
+        self.wallets.keys().cloned().collect()
     }
 
-    fn wallet_path(&self, name: &str) -> PathBuf {
-        self.data_dir.join(WALLETS_DIR).join(format!("{}.dat", name))
-    }
-
-    fn scan_wallets(&mut self) {
-        let wallets_dir = self.data_dir.join(WALLETS_DIR);
-        if !wallets_dir.exists() {
-            return;
-        }
-
-        if let Ok(entries) = fs::read_dir(&wallets_dir) {
-            let mut found: Vec<String> = entries
-                .filter_map(|e| e.ok())
-                .filter_map(|e| {
-                    let fname = e.file_name().to_string_lossy().to_string();
-                    fname.strip_suffix(".dat").map(|s| s.to_string())
-                })
-                .collect();
-
-            found.sort();
-
-            for name in found {
-                match self.load_wallet_from_disk(&name) {
-                    Ok(wallet) => {
-                        if self.selected.is_empty() {
-                            self.selected = name.clone();
-                        }
-                        self.wallets.insert(name, wallet);
-                    }
-                    Err(e) => eprintln!("Failed to load wallet '{}': {}", name, e),
-                }
+    pub fn export_wallet(&self, name: &str, format: &str) -> Result<String, String> {
+        let wallet = self.wallets.get(name).ok_or("Wallet not found")?;
+        let path = format!("{}/wallets/{}.{}", self.data_dir, name, format);
+        match format {
+            "wif" => {
+                let wif = wallet.to_wif(false);
+                fs::write(&path, wif.clone()).map_err(|e| e.to_string())?;
+                Ok(wif)
             }
+            "json" => {
+                let json = wallet.to_json();
+                fs::write(&path, json.clone()).map_err(|e| e.to_string())?;
+                Ok(json)
+            }
+            _ => Err("Format must be 'wif' or 'json'".to_string()),
         }
     }
 
-    pub fn save_wallet_to_disk(&self, name: &str, wallet: &Wallet) -> Result<(), String> {
-        let path = self.wallet_path(name);
-        let raw_key = wallet.private_key.secret_bytes();
+    pub fn import_wallet(&mut self, file_path: &str, name: Option<&str>) -> Result<String, String> {
+        let content = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
 
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key));
-        let mut nonce_bytes = [0u8; NONCE_LEN];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let wallet = if content.contains('{') {
+            Wallet::from_json(&content)?
+        } else {
+            Wallet::from_wif(&content, false)?
+        };
 
-        let ciphertext = cipher
-            .encrypt(nonce, raw_key.as_ref())
-            .map_err(|_| "Encryption failed".to_string())?;
-
-        let mut data = Vec::with_capacity(NONCE_LEN + ciphertext.len());
-        data.extend_from_slice(&nonce_bytes);
-        data.extend_from_slice(&ciphertext);
-
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-        fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-
-        Ok(())
-    }
-
-    fn load_wallet_from_disk(&self, name: &str) -> Result<Wallet, String> {
-        let path = self.wallet_path(name);
-        let data = fs::read(&path).map_err(|e| e.to_string())?;
-
-        if data.len() <= NONCE_LEN {
-            return Err("Wallet file too short".to_string());
-        }
-
-        let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
-        let nonce = Nonce::from_slice(nonce_bytes);
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key));
-
-        let plaintext = cipher
-            .decrypt(nonce, ciphertext)
-            .map_err(|_| "Decrypt failed — wrong key or corrupted file".to_string())?;
-
-        if plaintext.len() != 32 {
-            return Err("Invalid key length".to_string());
-        }
-
-        Wallet::from_raw_key(&plaintext).map_err(|e| e.to_string())
+        let name = name.unwrap_or("imported").to_string();
+        self.create_wallet_raw(&name, wallet)
     }
 }

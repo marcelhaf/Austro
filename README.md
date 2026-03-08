@@ -124,7 +124,8 @@ No configuration needed.
 | `newwallet <name>` | Create a new named wallet |
 | `selectwallet <name>` | Switch the active wallet |
 | `listwallets` | List all wallets with balances |
-
+| `exportwallet <name> [wif/json]` | Export wallet to file (WIF or JSON) |
+| `importwallet <file> [name]` | Import wallet from file |
 ---
 
 ## Example Session
