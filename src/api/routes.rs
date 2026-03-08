@@ -35,7 +35,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/address/:addr",  get(get_address))
         .route("/api/mempool",        get(get_mempool))
         // Serve the static explorer UI
-        .nest_service("/", ServeDir::new("static"))
+        .nest_service("/", ServeDir::new("docs"))
         .layer(cors)
         .with_state(state)
 }
