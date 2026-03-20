@@ -22,13 +22,13 @@ pub struct AustroBehaviour {
 
 #[derive(Debug)]
 pub enum AustroBehaviourEvent {
-    Gossipsub(gossipsub::Event),
+    Gossipsub(Box<gossipsub::Event>),
     Mdns(libp2p::mdns::Event),
 }
 
 impl From<gossipsub::Event> for AustroBehaviourEvent {
     fn from(e: gossipsub::Event) -> Self {
-        AustroBehaviourEvent::Gossipsub(e)
+        AustroBehaviourEvent::Gossipsub(Box::new(e))
     }
 }
 

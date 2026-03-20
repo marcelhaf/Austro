@@ -18,7 +18,7 @@ impl Wallet {
     pub fn pub_key_hash(&self) -> Vec<u8> {
         let pub_bytes = self.public_key.serialize().to_vec();
         let sha1 = Sha256::digest(&pub_bytes);
-        let sha2 = Sha256::digest(&sha1);
+        let sha2 = Sha256::digest(sha1);
         sha2.to_vec()
     }
 
@@ -111,6 +111,6 @@ impl Wallet {
 
 fn wif_checksum(data: &[u8]) -> [u8; 4] {
     let hash1 = Sha256::digest(data);
-    let hash2 = Sha256::digest(&hash1);
+    let hash2 = Sha256::digest(hash1);
     hash2[0..4].try_into().unwrap()
 }

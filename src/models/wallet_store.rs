@@ -20,7 +20,7 @@ impl WalletManager {
         wm.load_wallets();
         if wm.wallets.is_empty() {
             let default = Wallet::new();
-            wm.create_wallet_raw("default", default);
+            let _ = wm.create_wallet_raw("default", default);
         }
         wm
     }
@@ -34,7 +34,7 @@ impl WalletManager {
         for entry in fs::read_dir(&wallet_dir).expect("Read wallets dir") {
             let entry = entry.expect("Read wallet entry");
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "json") {
+            if path.extension().is_some_and(|e| e == "json") {
                 let name = path.file_stem().unwrap().to_string_lossy().to_string();
                 match self.load_wallet_json(&path) {
                     Ok(wallet) => {

@@ -20,6 +20,7 @@ use crate::api::types::*;
 #[derive(Clone)]
 pub struct AppState {
     pub blockchain:   Arc<Mutex<Blockchain>>,
+    #[allow(dead_code)]
     pub node_peer_id: String,
 }
 

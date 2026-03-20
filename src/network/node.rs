@@ -128,61 +128,63 @@ pub async fn run_node(
                         }
                     }
 
-                    SwarmEvent::Behaviour(AustroBehaviourEvent::Gossipsub(
-                        GossipsubEvent::Message { message, .. }
-                    )) => {
-                        let sync_happened = handle_network_message(
-                            message.data,
-                            &mut swarm,
-                            &blockchain,
-                            &store,
-                            &topic_blocks,
-                            &topic_txs,
-                            &mut tx_buffer,
-                            synced,
-                        );
-                        if sync_happened {
-                            synced = true;
-                            if !tx_buffer.is_empty() {
-                                let mut chain      = blockchain.lock().unwrap();
-                                let mut reaccepted = 0usize;
-                                while let Some(tx) = tx_buffer.pop_front() {
-                                    if chain.mempool.contains(&tx.id) { continue; }
-                                    if chain.validate_transaction(&tx) {
-                                        let fee = chain.calculate_fee(&tx).unwrap_or(0);
-                                        if chain.mempool.add(tx, fee).is_ok() { reaccepted += 1; }
+                    SwarmEvent::Behaviour(AustroBehaviourEvent::Gossipsub(boxed)) => {
+                        match *boxed {
+                            GossipsubEvent::Message { message, .. } => {
+                                let sync_happened = handle_network_message(
+                                    message.data,
+                                    &mut swarm,
+                                    &blockchain,
+                                    &store,
+                                    &topic_blocks,
+                                    &topic_txs,
+                                    &mut tx_buffer,
+                                    synced,
+                                );
+                                if sync_happened {
+                                    synced = true;
+                                    if !tx_buffer.is_empty() {
+                                        let mut chain      = blockchain.lock().unwrap();
+                                        let mut reaccepted = 0usize;
+                                        while let Some(tx) = tx_buffer.pop_front() {
+                                            if chain.mempool.contains(&tx.id) { continue; }
+                                            if chain.validate_transaction(&tx) {
+                                                let fee = chain.calculate_fee(&tx).unwrap_or(0);
+                                                if chain.mempool.add(tx, fee).is_ok() { reaccepted += 1; }
+                                            }
+                                        }
+                                        if reaccepted > 0 {
+                                            info!(count = reaccepted, "Buffered transactions revalidated after sync");
+                                        }
                                     }
                                 }
-                                if reaccepted > 0 {
-                                    info!(count = reaccepted, "Buffered transactions revalidated after sync");
+                            }
+
+                            GossipsubEvent::Subscribed { peer_id, topic } => {
+                                info!(peer_id = %peer_id, topic = %topic, "Peer joined topic");
+                                has_peers = true;
+                                synced    = false;
+
+                                let chain       = blockchain.lock().unwrap();
+                                let req         = NetworkMessage::GetBlocks(GetBlocks {
+                                    from_hash:   chain.tip_hash(),
+                                    from_height: chain.height(),
+                                    nonce:       random_nonce(),
+                                });
+                                let mempool_txs = chain.mempool.pending_txs();
+                                drop(chain);
+
+                                let _ = swarm.behaviour_mut().gossipsub
+                                    .publish(topic_blocks.clone(), req.serialize());
+                                if !mempool_txs.is_empty() {
+                                    debug!(count = mempool_txs.len(), "Sharing mempool with new peer");
+                                    let _ = swarm.behaviour_mut().gossipsub
+                                        .publish(topic_txs.clone(),
+                                            NetworkMessage::MempoolTxs(mempool_txs).serialize());
                                 }
                             }
-                        }
-                    }
 
-                    SwarmEvent::Behaviour(AustroBehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id, topic }
-                    )) => {
-                        info!(peer_id = %peer_id, topic = %topic, "Peer joined topic");
-                        has_peers = true;
-                        synced    = false;
-
-                        let chain       = blockchain.lock().unwrap();
-                        let req         = NetworkMessage::GetBlocks(GetBlocks {
-                            from_hash:   chain.tip_hash(),
-                            from_height: chain.height(),
-                            nonce:       random_nonce(),
-                        });
-                        let mempool_txs = chain.mempool.pending_txs();
-                        drop(chain);
-
-                        let _ = swarm.behaviour_mut().gossipsub
-                            .publish(topic_blocks.clone(), req.serialize());
-                        if !mempool_txs.is_empty() {
-                            debug!(count = mempool_txs.len(), "Sharing mempool with new peer");
-                            let _ = swarm.behaviour_mut().gossipsub
-                                .publish(topic_txs.clone(),
-                                    NetworkMessage::MempoolTxs(mempool_txs).serialize());
+                            _ => {}
                         }
                     }
 
@@ -209,6 +211,7 @@ pub async fn run_node(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_network_message(
     data:         Vec<u8>,
     swarm:        &mut libp2p::Swarm<AustroBehaviour>,
@@ -408,7 +411,7 @@ async fn handle_command(
             if chain.try_append_block(mined_block.clone(), store) {
                 let confirmed: Vec<String> = pending.iter().map(|tx| tx.id.clone()).collect();
                 chain.mempool.purge_confirmed(&confirmed);
-                if chain.chain.len() % 210 == 0 && chain.mining_reward > 1 {
+                if chain.chain.len().is_multiple_of(210) && chain.mining_reward > 1 {
                     chain.mining_reward /= 2;
                     info!(new_reward = chain.mining_reward, "Block reward halving");
                 }

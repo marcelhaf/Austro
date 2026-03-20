@@ -13,6 +13,7 @@ use crate::models::storage::BlockStore;
 use crate::models::transaction::{OutPoint, Transaction, TXOutput};
 use crate::models::wallet::Wallet;
 
+#[allow(dead_code)]
 const MAX_TXS_PER_BLOCK: usize = 500;
 
 #[derive(Debug, Clone)]
@@ -175,7 +176,7 @@ impl Blockchain {
             };
 
             let sha1 = Sha256::digest(&input.pub_key);
-            let sha2 = Sha256::digest(&sha1);
+            let sha2 = Sha256::digest(sha1);
             if sha2.to_vec() != referenced.pub_key_hash {
                 warn!(tx_id = %tx.id, "Input public key does not match UTXO pub_key_hash");
                 return false;
@@ -417,6 +418,7 @@ impl Blockchain {
 
     #[instrument(skip(self, miner_wallet, store),
                  fields(miner = %miner_wallet.address(), height = self.height() + 1))]
+    #[allow(dead_code)]             
     pub fn mine_pending_transactions(&mut self, miner_wallet: &Wallet, store: &BlockStore) {
         let next_difficulty = self.compute_current_difficulty();
         self.difficulty = next_difficulty;
@@ -479,7 +481,7 @@ impl Blockchain {
             info!(total_fees, coinbase_value, "Block fees collected");
         }
 
-        if self.chain.len() % 210 == 0 && self.mining_reward > 1 {
+        if self.chain.len().is_multiple_of(210) && self.mining_reward > 1 {
             let old_reward = self.mining_reward;
             self.mining_reward /= 2;
             info!(old_reward, new_reward = self.mining_reward, height = self.height(), "Block reward halving");
@@ -517,6 +519,7 @@ impl Blockchain {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_history(&self, wallet: &Wallet) -> Vec<crate::models::history::TxRecord> {
         crate::models::history::build_history(
             &self.chain,

@@ -54,6 +54,7 @@ impl BlockStore {
         Ok(blocks)
     }
 
+    #[allow(dead_code)]
     pub fn persisted_height(&self) -> Result<Option<u64>, sled::Error> {
         let meta = self.db.open_tree(META_TREE)?;
         match meta.get(KEY_HEIGHT)? {
@@ -89,6 +90,7 @@ impl BlockStore {
         Ok(entries)
     }
 
+    #[allow(dead_code)]
     pub fn clear_mempool(&self) -> Result<(), sled::Error> {
         let tree = self.db.open_tree(MEMPOOL_TREE)?;
         tree.clear()?;

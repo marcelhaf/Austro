@@ -28,21 +28,22 @@ pub const MAX_DIFFICULTY: usize = 64;
 pub fn calculate_next_difficulty(current_difficulty: usize, actual_timespan: u64) -> usize {
     // Clamp actual timespan to [TARGET/4, TARGET*4]
     // This prevents extreme jumps from slow/fast mining periods
-    let clamped = actual_timespan
-        .max(TARGET_TIMESPAN / MAX_ADJUSTMENT_FACTOR)
-        .min(TARGET_TIMESPAN * MAX_ADJUSTMENT_FACTOR);
+    let clamped = actual_timespan.clamp(
+        TARGET_TIMESPAN / MAX_ADJUSTMENT_FACTOR,
+        TARGET_TIMESPAN * MAX_ADJUSTMENT_FACTOR,
+    );
 
     // new_difficulty = current * (target_timespan / actual_timespan)
     // We scale by 1000 to avoid integer division precision loss
     let scaled = (current_difficulty as u64) * 1000 * TARGET_TIMESPAN / clamped;
     let new_difficulty = ((scaled + 500) / 1000) as usize; // round
 
-    new_difficulty.max(MIN_DIFFICULTY).min(MAX_DIFFICULTY)
+    new_difficulty.clamp(MIN_DIFFICULTY, MAX_DIFFICULTY)
 }
 
 /// Returns true if this block height triggers a retarget.
 pub fn is_retarget_block(height: u64) -> bool {
-    height > 0 && height % RETARGET_INTERVAL == 0
+    height > 0 && height.is_multiple_of(RETARGET_INTERVAL)
 }
 
 #[cfg(test)]
