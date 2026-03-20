@@ -40,6 +40,7 @@ impl NodeConfig {
         let mut bootstrap_peers: Vec<String>    = Vec::new();
         let mut log_format:      String         = "pretty".to_string();
         let mut log_dir:         Option<String> = None;
+        let mut no_default_peer: bool           = false;
 
         let mut i = 2;
         while i < args.len() {
@@ -57,6 +58,10 @@ impl NodeConfig {
                     if let Some(v) = args.get(i + 1) { bootstrap_peers.push(v.clone()); i += 2; }
                     else { i += 1; }
                 }
+                "--no-default-peer" => {
+                    no_default_peer = true;
+                    i += 1;
+                }
                 "--log-format" => {
                     if let Some(v) = args.get(i + 1) { log_format = v.clone(); i += 2; }
                     else { i += 1; }
@@ -67,6 +72,10 @@ impl NodeConfig {
                 }
                 _ => { i += 1; }
             }
+        }
+
+        if bootstrap_peers.is_empty() && !no_default_peer {
+            bootstrap_peers.push("/ip4/147.224.133.52/tcp/4001".to_string());
         }
 
         NodeConfig { data_dir, port, explorer_port, bootstrap_peers, log_format, log_dir }
