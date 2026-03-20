@@ -7,15 +7,19 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::ServeDir;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    services::ServeDir,
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+};
+use tracing::Level;
 
 use crate::models::blockchain::Blockchain;
 use crate::api::types::*;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub blockchain: Arc<Mutex<Blockchain>>,
+    pub blockchain:   Arc<Mutex<Blockchain>>,
     pub node_peer_id: String,
 }
 
@@ -25,22 +29,31 @@ pub fn build_router(state: AppState) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    let trace_layer = TraceLayer::new_for_http()
+        .make_span_with(
+            DefaultMakeSpan::new()
+                .level(Level::INFO)
+                .include_headers(false),
+        )
+        .on_response(
+            DefaultOnResponse::new()
+                .level(Level::INFO)
+                .include_headers(false),
+        );
+
     Router::new()
-        // Chain info
-        .route("/api/info",           get(get_info))
-        .route("/api/chain",          get(get_chain))
-        .route("/api/block/:hash",    get(get_block_by_hash))
-        .route("/api/block/height/:n",get(get_block_by_height))
-        .route("/api/tx/:id",         get(get_tx))
-        .route("/api/address/:addr",  get(get_address))
-        .route("/api/mempool",        get(get_mempool))
-        // Serve the static explorer UI
+        .route("/api/info",            get(get_info))
+        .route("/api/chain",           get(get_chain))
+        .route("/api/block/:hash",     get(get_block_by_hash))
+        .route("/api/block/height/:n", get(get_block_by_height))
+        .route("/api/tx/:id",          get(get_tx))
+        .route("/api/address/:addr",   get(get_address))
+        .route("/api/mempool",         get(get_mempool))
         .nest_service("/", ServeDir::new("docs"))
+        .layer(trace_layer)
         .layer(cors)
         .with_state(state)
 }
-
-// ── /api/info ─────────────────────────────────────────────────────────────────
 
 async fn get_info(State(state): State<AppState>) -> impl IntoResponse {
     let chain = state.blockchain.lock().unwrap();
@@ -50,24 +63,20 @@ async fn get_info(State(state): State<AppState>) -> impl IntoResponse {
         .map(|o| o.value)
         .sum();
     Json(ApiChainInfo {
-        height: chain.height(),
-        difficulty: chain.difficulty,
+        height:             chain.height(),
+        difficulty:         chain.difficulty,
         total_supply,
-        pending_txs: chain.mempool.size(),
+        pending_txs:        chain.mempool.size(),
         total_fees_pending: chain.mempool.total_fees(),
-        is_valid: chain.is_valid(),
+        is_valid:           chain.is_valid(),
     })
 }
 
-// ── /api/chain ────────────────────────────────────────────────────────────────
-
 async fn get_chain(State(state): State<AppState>) -> impl IntoResponse {
-    let chain = state.blockchain.lock().unwrap();
+    let chain  = state.blockchain.lock().unwrap();
     let blocks: Vec<ApiBlock> = chain.chain.iter().rev().map(block_to_api).collect();
     Json(blocks)
 }
-
-// ── /api/block/:hash ──────────────────────────────────────────────────────────
 
 async fn get_block_by_hash(
     State(state): State<AppState>,
@@ -83,8 +92,6 @@ async fn get_block_by_hash(
     }
 }
 
-// ── /api/block/height/:n ──────────────────────────────────────────────────────
-
 async fn get_block_by_height(
     State(state): State<AppState>,
     Path(n): Path<u64>,
@@ -99,8 +106,6 @@ async fn get_block_by_height(
     }
 }
 
-// ── /api/tx/:id ───────────────────────────────────────────────────────────────
-
 async fn get_tx(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -114,7 +119,7 @@ async fn get_tx(
                 let fee = if tx.is_coinbase() {
                     0
                 } else {
-                    let in_val: u64 = tx.vin.iter()
+                    let in_val: u64  = tx.vin.iter()
                         .filter_map(|i| utxos.get(&i.previous_output))
                         .map(|o| o.value)
                         .sum();
@@ -126,7 +131,6 @@ async fn get_tx(
         }
     }
 
-    // Check mempool
     for entry in &chain.mempool.entries {
         if entry.tx.id == id {
             return Json(tx_to_api(&entry.tx, entry.fee)).into_response();
@@ -138,8 +142,6 @@ async fn get_tx(
         Json(ApiError { error: format!("TX '{}' not found", id) }),
     ).into_response()
 }
-
-// ── /api/address/:addr ────────────────────────────────────────────────────────
 
 async fn get_address(
     State(state): State<AppState>,
@@ -153,7 +155,7 @@ async fn get_address(
         ).into_response(),
     };
 
-    let chain = state.blockchain.lock().unwrap();
+    let chain   = state.blockchain.lock().unwrap();
     let records = crate::models::history::build_history(
         &chain.chain, &pub_key_hash, chain.height());
 
@@ -164,12 +166,12 @@ async fn get_address(
         .sum();
 
     let transactions = records.iter().map(|r| ApiAddressTx {
-        tx_id: r.tx_id.clone(),
-        block: r.block_height,
+        tx_id:         r.tx_id.clone(),
+        block:         r.block_height,
         confirmations: r.confirmations,
-        net: r.net,
-        fee: r.fee,
-        direction: match r.direction {
+        net:           r.net,
+        fee:           r.fee,
+        direction:     match r.direction {
             crate::models::history::TxDirection::Received => "in".to_string(),
             crate::models::history::TxDirection::Sent     => "out".to_string(),
             crate::models::history::TxDirection::Self_    => "self".to_string(),
@@ -177,28 +179,24 @@ async fn get_address(
     }).collect();
 
     Json(ApiAddressInfo {
-        address: addr,
+        address:      addr,
         balance,
-        tx_count: records.len(),
+        tx_count:     records.len(),
         transactions,
     }).into_response()
 }
 
-// ── /api/mempool ──────────────────────────────────────────────────────────────
-
 async fn get_mempool(State(state): State<AppState>) -> impl IntoResponse {
-    let chain = state.blockchain.lock().unwrap();
+    let chain        = state.blockchain.lock().unwrap();
     let transactions = chain.mempool.entries.iter()
         .map(|e| tx_to_api(&e.tx, e.fee))
         .collect();
     Json(ApiMempool {
-        count: chain.mempool.size(),
+        count:      chain.mempool.size(),
         total_fees: chain.mempool.total_fees(),
         transactions,
     })
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn block_to_api(block: &crate::models::block::Block) -> ApiBlock {
     let miner = block.transactions.iter()
@@ -210,29 +208,29 @@ fn block_to_api(block: &crate::models::block::Block) -> ApiBlock {
     let txs = block.transactions.iter().map(|tx| tx_to_api(tx, 0)).collect();
 
     ApiBlock {
-        index: block.index,
-        hash: block.hash.clone(),
+        index:         block.index,
+        hash:          block.hash.clone(),
         previous_hash: block.previous_hash.clone(),
-        timestamp: block.timestamp,
-        nonce: block.proof_of_work,
-        difficulty: block.difficulty,
-        reward: block.reward,
-        tx_count: block.transactions.len(),
-        transactions: txs,
+        timestamp:     block.timestamp,
+        nonce:         block.proof_of_work,
+        difficulty:    block.difficulty,
+        reward:        block.reward,
+        tx_count:      block.transactions.len(),
+        transactions:  txs,
         miner,
     }
 }
 
 fn tx_to_api(tx: &crate::models::transaction::Transaction, fee: u64) -> ApiTx {
     ApiTx {
-        id: tx.id.clone(),
+        id:          tx.id.clone(),
         is_coinbase: tx.is_coinbase(),
-        inputs: tx.vin.iter().map(|i| ApiInput {
-            tx_id: i.previous_output.tx_id.clone(),
+        inputs:      tx.vin.iter().map(|i| ApiInput {
+            tx_id:     i.previous_output.tx_id.clone(),
             out_index: i.previous_output.out_index,
         }).collect(),
-        outputs: tx.vout.iter().map(|o| ApiOutput {
-            value: o.value,
+        outputs:     tx.vout.iter().map(|o| ApiOutput {
+            value:   o.value,
             address: hex::encode(&o.pub_key_hash),
         }).collect(),
         fee,

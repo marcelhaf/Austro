@@ -10,17 +10,35 @@ use libp2p::{
 };
 use libp2p_swarm::NetworkBehaviour;
 
-pub const TOPIC_BLOCKS: &str = "austro-blocks";
+pub const TOPIC_BLOCKS: &str       = "austro-blocks";
 pub const TOPIC_TRANSACTIONS: &str = "austro-transactions";
 
 #[derive(NetworkBehaviour)]
+#[behaviour(out_event = "AustroBehaviourEvent")]
 pub struct AustroBehaviour {
     pub gossipsub: Gossipsub,
-    pub mdns: Mdns,
+    pub mdns:      Mdns,
+}
+
+#[derive(Debug)]
+pub enum AustroBehaviourEvent {
+    Gossipsub(gossipsub::Event),
+    Mdns(libp2p::mdns::Event),
+}
+
+impl From<gossipsub::Event> for AustroBehaviourEvent {
+    fn from(e: gossipsub::Event) -> Self {
+        AustroBehaviourEvent::Gossipsub(e)
+    }
+}
+
+impl From<libp2p::mdns::Event> for AustroBehaviourEvent {
+    fn from(e: libp2p::mdns::Event) -> Self {
+        AustroBehaviourEvent::Mdns(e)
+    }
 }
 
 impl AustroBehaviour {
-    // Now receives the swarm keypair to sign gossipsub messages consistently
     pub fn new(local_peer_id: PeerId, keypair: &Keypair) -> Self {
         let message_id_fn = |message: &gossipsub::Message| {
             let mut hasher = DefaultHasher::new();
