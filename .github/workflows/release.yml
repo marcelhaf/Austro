@@ -128,7 +128,7 @@ jobs:
             | macOS | x86_64 (Intel) | `austro-macos-x86_64.tar.gz` |
             | macOS | ARM64 (Apple Silicon) | `austro-macos-arm64.tar.gz` |
 
-            ### Explorer
+            ### Austro Explorer Ecossystem
             - https://cryptoaustro.duckdns.org
             - https://marcelhaf.github.io/Austro
           files: |
