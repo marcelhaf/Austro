@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 mod api;
 mod models;
 mod network;
@@ -163,7 +166,7 @@ async fn main() {
         blockchain:   explorer_blockchain,
         node_peer_id: String::from("starting..."),
     };
-    let app      = api::routes::build_router(app_state);
+    let app       = api::routes::build_router(app_state);
     let bind_addr = format!("0.0.0.0:{}", config.explorer_port);
     let listener  = tokio::net::TcpListener::bind(&bind_addr)
         .await

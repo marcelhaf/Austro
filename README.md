@@ -194,7 +194,7 @@ rm -rf node1 node2
 
 - [x] Wallet import/export (JSON + WIF)
 - [x] `tracing` structured logging
-- [ ] Integration test suite (`cargo test`)
+- [x] Integration test suite (`cargo test`)
 
 ---
 

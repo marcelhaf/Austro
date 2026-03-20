@@ -144,12 +144,14 @@ impl Blockchain {
                     return false;
                 }
             };
-            let mut hasher = Sha256::new();
-            hasher.update(&input.pub_key);
-            if hasher.finalize().to_vec() != referenced.pub_key_hash {
+
+            let sha1 = Sha256::digest(&input.pub_key);
+            let sha2 = Sha256::digest(&sha1);
+            if sha2.to_vec() != referenced.pub_key_hash {
                 warn!(tx_id = %tx.id, "Input public key does not match UTXO pub_key_hash");
                 return false;
             }
+
             input_total += referenced.value;
         }
 
