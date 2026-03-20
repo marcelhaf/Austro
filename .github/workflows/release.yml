@@ -56,25 +56,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
 
-      - name: Install Linux ARM64 cross-compiler
+      - name: Install Linux ARM64 toolchain
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
             pkg-config \
-            libssl-dev \
-            libssl-dev:arm64 || true
-
-      - name: Configure linker (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          mkdir -p .cargo
-          cat > .cargo/config.toml << 'EOF'
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
+            libssl-dev
+          which aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc --version
 
       - name: Configure linker (macOS)
         if: matrix.os == 'macos-latest'
@@ -88,11 +81,26 @@ jobs:
           rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld"]
           EOF
 
-      - name: Build
+      - name: Build (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          PKG_CONFIG_ALLOW_CROSS: "1"
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare artifact (Unix)
         if: matrix.os != 'windows-latest'
