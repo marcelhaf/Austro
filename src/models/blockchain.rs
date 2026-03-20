@@ -52,12 +52,41 @@ impl Blockchain {
             (persisted, diff)
         };
 
-        Blockchain {
-            chain,
-            difficulty,
-            mempool: Mempool::new(),
-            mining_reward: 50,
+        let mut mempool = Mempool::new();
+        let utxos = {
+            let tmp = Blockchain {
+                chain: chain.clone(),
+                difficulty,
+                mempool: Mempool::new(),
+                mining_reward: 50,
+            };
+            tmp.build_utxo_set()
+        };
+
+        if let Ok(entries) = store.load_mempool() {
+            for entry in entries {
+                let valid = !entry.tx.is_coinbase()
+                    && entry.tx.verify_signatures()
+                    && crate::models::blockchain::Blockchain::validate_against_static(
+                        &entry.tx, &utxos
+                    );
+                if valid {
+                    let _ = mempool.add(entry.tx, entry.fee);
+                }
+            }
+            if mempool.size() > 0 {
+                info!(count = mempool.size(), "Mempool restored from disk");
+            }
         }
+
+        Blockchain { chain, difficulty, mempool, mining_reward: 50 }
+    }
+
+    pub fn validate_against_static(
+        tx: &Transaction,
+        utxos: &HashMap<OutPoint, TXOutput>,
+    ) -> bool {
+        Self::validate_against(tx, utxos)
     }
 
     pub fn height(&self) -> u64 {

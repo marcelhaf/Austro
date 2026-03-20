@@ -1,26 +1,25 @@
-// Mempool with fee-based priority — higher fee TXs are collected first,
-// analogous to Bitcoin's fee-rate ordering for block template construction.
-
 use std::collections::HashSet;
+
+use serde::{Deserialize, Serialize};
 
 use crate::models::transaction::{OutPoint, Transaction};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MempoolEntry {
-    pub tx: Transaction,
+    pub tx:  Transaction,
     pub fee: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct Mempool {
-    pub entries: Vec<MempoolEntry>,
-    pub reserved_inputs: HashSet<OutPoint>,
+    pub entries:          Vec<MempoolEntry>,
+    pub reserved_inputs:  HashSet<OutPoint>,
 }
 
 impl Mempool {
     pub fn new() -> Self {
         Mempool {
-            entries: Vec::new(),
+            entries:         Vec::new(),
             reserved_inputs: HashSet::new(),
         }
     }
@@ -45,14 +44,11 @@ impl Mempool {
         }
 
         self.entries.push(MempoolEntry { tx, fee });
-
-        // Sort by fee descending — highest fee TXs included first
         self.entries.sort_by(|a, b| b.fee.cmp(&a.fee));
 
         Ok(())
     }
 
-    /// Returns up to `limit` highest-fee TXs for block construction.
     pub fn collect_for_block(&self, limit: usize) -> Vec<Transaction> {
         self.entries.iter()
             .take(limit)

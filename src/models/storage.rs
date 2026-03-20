@@ -2,6 +2,9 @@ use sled::Db;
 use tracing::{debug, instrument};
 
 use crate::models::block::Block;
+use crate::models::mempool::MempoolEntry;
+
+const MEMPOOL_TREE: &str = "mempool";
 
 const BLOCKS_TREE: &str = "blocks";
 const META_TREE:   &str = "meta";
@@ -60,5 +63,36 @@ impl BlockStore {
             }
             None => Ok(None),
         }
+    }
+
+    pub fn save_mempool(&self, entries: &[MempoolEntry]) -> Result<(), sled::Error> {
+        let tree = self.db.open_tree(MEMPOOL_TREE)?;
+        tree.clear()?;
+        for entry in entries {
+            let key   = entry.tx.id.as_bytes().to_vec();
+            let value = serde_json::to_vec(entry).expect("MempoolEntry serializable");
+            tree.insert(key, value)?;
+        }
+        tree.flush()?;
+        Ok(())
+    }
+
+    pub fn load_mempool(&self) -> Result<Vec<MempoolEntry>, sled::Error> {
+        let tree = self.db.open_tree(MEMPOOL_TREE)?;
+        let mut entries = Vec::new();
+        for item in tree.iter() {
+            let (_, value) = item?;
+            if let Ok(entry) = serde_json::from_slice::<MempoolEntry>(&value) {
+                entries.push(entry);
+            }
+        }
+        Ok(entries)
+    }
+
+    pub fn clear_mempool(&self) -> Result<(), sled::Error> {
+        let tree = self.db.open_tree(MEMPOOL_TREE)?;
+        tree.clear()?;
+        tree.flush()?;
+        Ok(())
     }
 }

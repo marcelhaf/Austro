@@ -373,17 +373,59 @@ async fn handle_command(
     let parts: Vec<&str> = cmd.splitn(4, ' ').collect();
     match parts[0] {
         "mine" => {
-            let miner = wallet_manager.lock().unwrap().current_wallet().clone();
-            info!(miner = %miner.address(), "Mining command received");
+            let miner       = wallet_manager.lock().unwrap().current_wallet().clone();
+            let difficulty  = blockchain.lock().unwrap().difficulty;
+            let tip_hash    = blockchain.lock().unwrap().tip_hash();
+            let height      = blockchain.lock().unwrap().height();
+            let reward      = blockchain.lock().unwrap().mining_reward;
+            let pending     = blockchain.lock().unwrap().mempool.collect_for_block(500);
+            let total_fees: u64 = blockchain.lock().unwrap().mempool.entries
+                .iter().take(500).map(|e| e.fee).sum();
+
+            let coinbase_value = reward + total_fees;
+            let reward_tx = crate::models::transaction::Transaction::coinbase(
+                &miner.pub_key_hash(), coinbase_value,
+            );
+            let mut transactions = vec![reward_tx];
+            transactions.extend(pending.clone());
+
+            let mut block = crate::models::block::Block::new(
+                height + 1,
+                tip_hash,
+                transactions,
+                coinbase_value,
+                difficulty,
+            );
+
+            info!(miner = %miner.address(), height = height + 1, "Mining started (non-blocking)");
+
+            let mined_block = tokio::task::spawn_blocking(move || {
+                block.mine(difficulty);
+                block
+            }).await.unwrap();
+
             let mut chain = blockchain.lock().unwrap();
-            chain.mine_pending_transactions(&miner, store);
-            let last = chain.chain.last().unwrap().clone();
-            drop(chain);
-            match swarm.behaviour_mut().gossipsub
-                .publish(topic_blocks.clone(), NetworkMessage::NewBlock(last.clone()).serialize())
-            {
-                Ok(msg_id) => info!(block_height = last.index, hash = %last.hash, msg_id = ?msg_id, "Block broadcast"),
-                Err(e)     => warn!(error = ?e, "Block broadcast failed"),
+            if chain.try_append_block(mined_block.clone(), store) {
+                let confirmed: Vec<String> = pending.iter().map(|tx| tx.id.clone()).collect();
+                chain.mempool.purge_confirmed(&confirmed);
+                if chain.chain.len() % 210 == 0 && chain.mining_reward > 1 {
+                    chain.mining_reward /= 2;
+                    info!(new_reward = chain.mining_reward, "Block reward halving");
+                }
+                drop(chain);
+                match swarm.behaviour_mut().gossipsub
+                    .publish(topic_blocks.clone(), NetworkMessage::NewBlock(mined_block.clone()).serialize())
+                {
+                    Ok(msg_id) => info!(
+                        block_height = mined_block.index,
+                        hash         = %mined_block.hash,
+                        msg_id       = ?msg_id,
+                        "Block mined and broadcast"
+                    ),
+                    Err(e) => warn!(error = ?e, "Block broadcast failed"),
+                }
+            } else {
+                warn!("Mined block rejected by chain (stale)");
             }
         }
 
@@ -407,6 +449,7 @@ async fn handle_command(
             let mut chain = blockchain.lock().unwrap();
             match chain.create_transaction(&from, &to_hash, amount, fee) {
                 Ok((tx, actual_fee)) => {
+                    let _ = store.save_mempool(&chain.mempool.entries);
                     let tx_id    = tx.id.clone();
                     let tx_clone = tx;
                     drop(chain);
