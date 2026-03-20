@@ -193,7 +193,7 @@ rm -rf node1 node2
 ## Roadmap
 
 - [x] Wallet import/export (JSON + WIF)
-- [ ] `tracing` structured logging
+- [x] `tracing` structured logging
 - [ ] Integration test suite (`cargo test`)
 
 ---
