@@ -411,7 +411,7 @@ async fn handle_command(
             if chain.try_append_block(mined_block.clone(), store) {
                 let confirmed: Vec<String> = pending.iter().map(|tx| tx.id.clone()).collect();
                 chain.mempool.purge_confirmed(&confirmed);
-                if chain.chain.len().is_multiple_of(210) && chain.mining_reward > 1 {
+                if chain.chain.len().is_multiple_of(210_000) && chain.mining_reward > 1 {
                     chain.mining_reward /= 2;
                     info!(new_reward = chain.mining_reward, "Block reward halving");
                 }

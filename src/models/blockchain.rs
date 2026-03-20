@@ -481,7 +481,7 @@ impl Blockchain {
             info!(total_fees, coinbase_value, "Block fees collected");
         }
 
-        if self.chain.len().is_multiple_of(210) && self.mining_reward > 1 {
+        if self.chain.len().is_multiple_of(210_000) && self.mining_reward > 1 {
             let old_reward = self.mining_reward;
             self.mining_reward /= 2;
             info!(old_reward, new_reward = self.mining_reward, height = self.height(), "Block reward halving");
@@ -492,11 +492,11 @@ impl Blockchain {
 
     pub fn difficulty_info(&self) -> DifficultyInfo {
         let h = self.chain.len() as u64;
-        let blocks_since = h % RETARGET_INTERVAL;
+        let blocks_since = h % 210_000;
         let blocks_until_retarget = if blocks_since == 0 {
-            RETARGET_INTERVAL
+            210_000
         } else {
-            RETARGET_INTERVAL - blocks_since
+            210_000 - blocks_since
         };
 
         let avg_block_time = if self.chain.len() > 2 {
