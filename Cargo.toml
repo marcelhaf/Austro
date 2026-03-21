@@ -1,6 +1,6 @@
 [package]
 name    = "austro"
-version = "0.3.4"
+version = "0.4.2"
 edition = "2021"
 
 [dependencies]
@@ -33,6 +33,8 @@ tracing-appender   = "0.2"
 time               = { version = "0.3", features = ["formatting"] }
 
 tempfile = "3"
-bip39   = "2"
-aes-gcm = "0.10"
-pbkdf2  = { version = "0.12", features = ["simple"] }
+bip39    = "2"
+aes-gcm  = "0.10"
+pbkdf2   = { version = "0.12", features = ["simple"] }
+zeroize  = { version = "1", features = ["derive"] }
+argon2 = "0.5"

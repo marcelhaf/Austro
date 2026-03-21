@@ -10,6 +10,7 @@ use libp2p::{
     Multiaddr, SwarmBuilder,
 };
 use tokio::io::{self, AsyncBufReadExt};
+use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
 use crate::models::blockchain::Blockchain;
@@ -18,12 +19,14 @@ use crate::models::transaction::Transaction;
 use crate::models::wallet_store::WalletManager;
 use crate::network::behaviour::{AustroBehaviour, AustroBehaviourEvent, TOPIC_BLOCKS, TOPIC_TRANSACTIONS};
 use crate::network::sync::{random_nonce, BlocksResponse, GetBlocks, NetworkMessage};
+use crate::api::routes::ApiCommand;
 
 pub async fn run_node(
     blockchain:     Arc<Mutex<Blockchain>>,
     store:          Arc<BlockStore>,
     wallet_manager: Arc<Mutex<WalletManager>>,
     config:         crate::NodeConfig,
+    mut cmd_rx:     mpsc::UnboundedReceiver<ApiCommand>,
 ) {
     let local_key     = libp2p::identity::Keypair::generate_ed25519();
     let local_peer_id = libp2p::PeerId::from(local_key.public());
@@ -104,6 +107,106 @@ pub async fn run_node(
                     debug!("Sending periodic sync request");
                     let _ = swarm.behaviour_mut().gossipsub
                         .publish(topic_blocks.clone(), req.serialize());
+                }
+            }
+
+            api_cmd = cmd_rx.recv() => {
+                if let Some(cmd) = api_cmd {
+                    match cmd {
+                        ApiCommand::Mine => {
+                            handle_command(
+                                "mine",
+                                &mut swarm,
+                                &blockchain,
+                                &store,
+                                &wallet_manager,
+                                &topic_blocks,
+                                &topic_txs,
+                            ).await;
+                        }
+
+                        ApiCommand::MineBlock { resp_tx } => {
+                            let miner      = wallet_manager.lock().unwrap().current_wallet().clone();
+                            let difficulty = blockchain.lock().unwrap().difficulty;
+                            let tip_hash   = blockchain.lock().unwrap().tip_hash();
+                            let height     = blockchain.lock().unwrap().height();
+                            let reward     = blockchain.lock().unwrap().mining_reward;
+                            let pending    = blockchain.lock().unwrap().mempool.collect_for_block(500);
+                            let total_fees: u64 = blockchain.lock().unwrap().mempool.entries
+                                .iter().take(500).map(|e| e.fee).sum();
+
+                            let coinbase_value = reward + total_fees;
+                            let reward_tx = crate::models::transaction::Transaction::coinbase(
+                                &miner.pub_key_hash(), coinbase_value,
+                            );
+                            let mut transactions = vec![reward_tx];
+                            transactions.extend(pending.clone());
+
+                            let mut block = crate::models::block::Block::new(
+                                height + 1, tip_hash, transactions, coinbase_value, difficulty,
+                            );
+
+                            info!(miner = %miner.address(), height = height + 1, "Mining block via GUI");
+
+                            let mined_block = tokio::task::spawn_blocking(move || {
+                                block.mine(difficulty);
+                                block
+                            }).await.unwrap();
+
+                            let mut chain = blockchain.lock().unwrap();
+                            if chain.try_append_block(mined_block.clone(), &store) {
+                                let confirmed: Vec<String> = pending.iter()
+                                    .map(|tx| tx.id.clone()).collect();
+                                chain.mempool.purge_confirmed(&confirmed);
+                                if chain.chain.len().is_multiple_of(210_000) && chain.mining_reward > 1 {
+                                    chain.mining_reward /= 2;
+                                    info!(new_reward = chain.mining_reward, "Block reward halving");
+                                }
+                                let new_balance = chain.get_balance(&miner);
+                                let new_height  = chain.height();
+                                drop(chain);
+
+                                let _ = swarm.behaviour_mut().gossipsub
+                                    .publish(topic_blocks.clone(),
+                                        NetworkMessage::NewBlock(mined_block.clone()).serialize());
+
+                                info!(height = new_height, hash = %mined_block.hash, "Block mined via GUI and broadcast");
+
+                                let _ = resp_tx.send(serde_json::json!({
+                                    "ok":      true,
+                                    "height":  new_height,
+                                    "hash":    mined_block.hash,
+                                    "reward":  coinbase_value,
+                                    "balance": new_balance
+                                }));
+                            } else {
+                                drop(chain);
+                                warn!("GUI mined block rejected (stale)");
+                                let _ = resp_tx.send(serde_json::json!({
+                                    "ok":    false,
+                                    "error": "Block rejected (stale)"
+                                }));
+                            }
+                        }
+
+                        ApiCommand::StopMining => {
+                            info!("Mining stop requested via API");
+                        }
+
+                        ApiCommand::Send { to, amount, fee } => {
+                            let addr = hex::encode(&to);
+                            let cmd  = format!("send {} {} {}", addr, amount, fee);
+                            handle_command(
+                                &cmd,
+                                &mut swarm,
+                                &blockchain,
+                                &store,
+                                &wallet_manager,
+                                &topic_blocks,
+                                &topic_txs,
+                            ).await;
+                        }
+                    }
                 }
             }
 
@@ -393,11 +496,7 @@ async fn handle_command(
             transactions.extend(pending.clone());
 
             let mut block = crate::models::block::Block::new(
-                height + 1,
-                tip_hash,
-                transactions,
-                coinbase_value,
-                difficulty,
+                height + 1, tip_hash, transactions, coinbase_value, difficulty,
             );
 
             info!(miner = %miner.address(), height = height + 1, "Mining started (non-blocking)");
@@ -482,7 +581,7 @@ async fn handle_command(
         }
 
         "newwallet" => {
-            if parts.len() < 2 { warn!("Usage: newwallet <name>"); return; }
+            if parts.len() < 2 { warn!("Usage: newwallet <n>"); return; }
             let mut wm = wallet_manager.lock().unwrap();
             match wm.create_wallet(parts[1]) {
                 Ok(addr) => info!(name = parts[1], address = %addr, "Wallet created"),
@@ -491,7 +590,7 @@ async fn handle_command(
         }
 
         "newmnemonic" => {
-            if parts.len() < 2 { warn!("Usage: newmnemonic <name>"); return; }
+            if parts.len() < 2 { warn!("Usage: newmnemonic <n>"); return; }
             let name = parts[1];
             let mut wm = wallet_manager.lock().unwrap();
             match wm.create_wallet_with_mnemonic(name) {
@@ -515,7 +614,7 @@ async fn handle_command(
 
         "recovermnemonic" => {
             if parts.len() < 3 {
-                warn!("Usage: recovermnemonic <name> <word1 word2 ... word12>");
+                warn!("Usage: recovermnemonic <n> <word1 word2 ... word12>");
                 return;
             }
             let name   = parts[1];
@@ -531,10 +630,7 @@ async fn handle_command(
         }
 
         "savewallet" => {
-            if parts.len() < 3 {
-                warn!("Usage: savewallet <name> <password>");
-                return;
-            }
+            if parts.len() < 3 { warn!("Usage: savewallet <n> <password>"); return; }
             let name     = parts[1];
             let password = parts[2];
             let wm       = wallet_manager.lock().unwrap();
@@ -548,10 +644,7 @@ async fn handle_command(
         }
 
         "loadwallet" => {
-            if parts.len() < 3 {
-                warn!("Usage: loadwallet <name> <password>");
-                return;
-            }
+            if parts.len() < 3 { warn!("Usage: loadwallet <n> <password>"); return; }
             let name     = parts[1];
             let password = parts[2];
             let mut wm   = wallet_manager.lock().unwrap();
@@ -565,7 +658,7 @@ async fn handle_command(
         }
 
         "selectwallet" => {
-            if parts.len() < 2 { warn!("Usage: selectwallet <name>"); return; }
+            if parts.len() < 2 { warn!("Usage: selectwallet <n>"); return; }
             let mut wm = wallet_manager.lock().unwrap();
             match wm.select_wallet(parts[1]) {
                 Ok(_)  => info!(name = parts[1], "Active wallet changed"),
@@ -586,7 +679,7 @@ async fn handle_command(
         }
 
         "exportwallet" => {
-            if parts.len() < 2 { warn!("Usage: exportwallet <name> [wif|json]"); return; }
+            if parts.len() < 2 { warn!("Usage: exportwallet <n> [wif|json]"); return; }
             let name   = parts[1];
             let format = if parts.len() == 3 { parts[2] } else { "json" };
             let wm     = wallet_manager.lock().unwrap();

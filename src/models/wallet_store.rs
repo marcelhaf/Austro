@@ -70,7 +70,7 @@ impl WalletManager {
         }
         let (wallet, phrase) = Wallet::new_with_mnemonic();
         let address          = self.create_wallet_raw(name, wallet)?;
-        Ok((address, phrase))
+        Ok((address, phrase.to_string()))
     }
 
     pub fn recover_from_mnemonic(&mut self, name: &str, phrase: &str) -> Result<String, String> {

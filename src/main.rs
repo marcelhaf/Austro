@@ -7,6 +7,7 @@ mod network;
 
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
@@ -19,6 +20,7 @@ use tracing_subscriber::{
 use models::blockchain::Blockchain;
 use models::storage::BlockStore;
 use models::wallet_store::WalletManager;
+use api::routes::ApiCommand;
 
 pub struct NodeConfig {
     pub data_dir:        String,
@@ -46,8 +48,9 @@ impl NodeConfig {
         while i < args.len() {
             match args[i].as_str() {
                 "--port" | "-p" => {
-                    if let Some(v) = args.get(i + 1) { port = v.parse().unwrap_or(0); i += 2; }
-                    else { i += 1; }
+                    if let Some(v) = args.get(i + 1) {
+                        port = v.parse().unwrap_or(0); i += 2;
+                    } else { i += 1; }
                 }
                 "--explorer-port" | "-e" => {
                     if let Some(v) = args.get(i + 1) {
@@ -55,20 +58,23 @@ impl NodeConfig {
                     } else { i += 1; }
                 }
                 "--peer" => {
-                    if let Some(v) = args.get(i + 1) { bootstrap_peers.push(v.clone()); i += 2; }
-                    else { i += 1; }
+                    if let Some(v) = args.get(i + 1) {
+                        bootstrap_peers.push(v.clone()); i += 2;
+                    } else { i += 1; }
                 }
                 "--no-default-peer" => {
                     no_default_peer = true;
                     i += 1;
                 }
                 "--log-format" => {
-                    if let Some(v) = args.get(i + 1) { log_format = v.clone(); i += 2; }
-                    else { i += 1; }
+                    if let Some(v) = args.get(i + 1) {
+                        log_format = v.clone(); i += 2;
+                    } else { i += 1; }
                 }
                 "--log-dir" => {
-                    if let Some(v) = args.get(i + 1) { log_dir = Some(v.clone()); i += 2; }
-                    else { i += 1; }
+                    if let Some(v) = args.get(i + 1) {
+                        log_dir = Some(v.clone()); i += 2;
+                    } else { i += 1; }
                 }
                 _ => { i += 1; }
             }
@@ -170,11 +176,15 @@ async fn main() {
         );
     }
 
-    let explorer_blockchain = blockchain.clone();
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<ApiCommand>();
+
     let app_state = api::routes::AppState {
-        blockchain:   explorer_blockchain,
-        node_peer_id: String::from("starting..."),
+        blockchain:     blockchain.clone(),
+        wallet_manager: wallet_manager.clone(),
+        cmd_tx,
+        node_peer_id:   String::from("starting..."),
     };
+
     let app       = api::routes::build_router(app_state);
     let bind_addr = format!("0.0.0.0:{}", config.explorer_port);
     let listener  = tokio::net::TcpListener::bind(&bind_addr)
@@ -192,7 +202,7 @@ async fn main() {
         }
     });
 
-    network::node::run_node(blockchain, store, wallet_manager, config).await;
+    network::node::run_node(blockchain, store, wallet_manager, config, cmd_rx).await;
 
     debug!("Main loop exited");
 }

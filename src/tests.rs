@@ -3,7 +3,7 @@ use tempfile::TempDir;
 use crate::models::block::Block;
 use crate::models::blockchain::Blockchain;
 use crate::models::difficulty::{
-    calculate_next_difficulty, is_retarget_block, TARGET_TIMESPAN, RETARGET_INTERVAL,
+    calculate_next_difficulty, is_retarget_block, TARGET_TIMESPAN, RETARGET_INTERVAL, MIN_DIFFICULTY,
 };
 use crate::models::genesis::{self, GENESIS_DIFFICULTY, GENESIS_REWARD};
 use crate::models::history::{build_history, TxDirection};
@@ -215,32 +215,35 @@ mod difficulty {
 
     #[test]
     fn no_change_on_target() {
-        assert_eq!(calculate_next_difficulty(4, TARGET_TIMESPAN), 4);
+        assert_eq!(calculate_next_difficulty(8, TARGET_TIMESPAN), 8);
     }
 
     #[test]
     fn increases_when_blocks_too_fast() {
-        assert_eq!(calculate_next_difficulty(4, TARGET_TIMESPAN / 4), 16);
+        assert_eq!(calculate_next_difficulty(8, TARGET_TIMESPAN / 4), 32);
     }
 
     #[test]
     fn decreases_when_blocks_too_slow() {
-        assert_eq!(calculate_next_difficulty(16, TARGET_TIMESPAN * 4), 4);
+        assert_eq!(calculate_next_difficulty(32, TARGET_TIMESPAN * 4), 8);
     }
 
     #[test]
     fn clamped_max_increase_is_4x() {
-        assert_eq!(calculate_next_difficulty(4, TARGET_TIMESPAN / 100), 16);
+        assert_eq!(calculate_next_difficulty(8, TARGET_TIMESPAN / 100), 32);
     }
 
     #[test]
     fn clamped_max_decrease_is_4x() {
-        assert_eq!(calculate_next_difficulty(16, TARGET_TIMESPAN * 100), 4);
+        assert_eq!(calculate_next_difficulty(32, TARGET_TIMESPAN * 100), 8);
     }
 
     #[test]
     fn never_drops_below_minimum() {
-        assert_eq!(calculate_next_difficulty(1, TARGET_TIMESPAN * 100), 1);
+        assert_eq!(
+            calculate_next_difficulty(MIN_DIFFICULTY, TARGET_TIMESPAN * 100),
+            MIN_DIFFICULTY
+        );
     }
 
     #[test]
