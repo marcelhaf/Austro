@@ -8,6 +8,7 @@ pub struct WalletManager {
     pub selected:  String,
     wallets:       std::collections::HashMap<String, Wallet>,
     data_dir:      String,
+    #[allow(dead_code)]
     temp_wallet:   Option<(Wallet, String)>,
 }
 
@@ -97,10 +98,12 @@ impl WalletManager {
         Ok(address)
     }
 
+    #[allow(dead_code)]
     pub fn store_temp(&mut self, wallet: Wallet, phrase: String) {
         self.temp_wallet = Some((wallet, phrase));
     }
 
+    #[allow(dead_code)]
     pub fn commit_temp(&mut self, name: &str) -> Result<String, String> {
         let (wallet, _phrase) = self.temp_wallet.take()
             .ok_or("No temporary wallet — run newmnemonic first")?;
