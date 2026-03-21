@@ -9,7 +9,7 @@ pub const GENESIS_PUB_KEY_HASH: [u8; 32] = [
 ];
 
 pub const GENESIS_REWARD: u64 = 50;
-pub const GENESIS_DIFFICULTY: usize = 4;
+pub const GENESIS_DIFFICULTY: usize = 6;
 
 const GENESIS_TIMESTAMP: u64 = 1741564800;
 
