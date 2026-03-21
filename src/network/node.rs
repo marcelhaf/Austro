@@ -66,7 +66,7 @@ pub async fn run_node(
         }
     }
 
-    info!("Node ready — commands: mine | send | bal | newwallet | selectwallet | listwallets | exportwallet | importwallet | mempool | diff | peers | chain | sync | history");
+    info!("Node ready — commands: mine | send | bal | newwallet | newmnemonic | recovermnemonic | savewallet | loadwallet | selectwallet | listwallets | exportwallet | importwallet | mempool | diff | peers | chain | sync | history");
 
     let stdin = io::stdin();
     let mut lines = io::BufReader::new(stdin).lines();
@@ -482,7 +482,7 @@ async fn handle_command(
         }
 
         "newwallet" => {
-            if parts.len() < 2 { warn!("Usage: newwallet <n>"); return; }
+            if parts.len() < 2 { warn!("Usage: newwallet <name>"); return; }
             let mut wm = wallet_manager.lock().unwrap();
             match wm.create_wallet(parts[1]) {
                 Ok(addr) => info!(name = parts[1], address = %addr, "Wallet created"),
@@ -490,8 +490,82 @@ async fn handle_command(
             }
         }
 
+        "newmnemonic" => {
+            if parts.len() < 2 { warn!("Usage: newmnemonic <name>"); return; }
+            let name = parts[1];
+            let mut wm = wallet_manager.lock().unwrap();
+            match wm.create_wallet_with_mnemonic(name) {
+                Ok((address, phrase)) => {
+                    info!(name, address = %address, "Wallet with mnemonic created");
+                    println!();
+                    println!("  ╔══════════════════════════════════════════════════════╗");
+                    println!("  ║           WRITE DOWN YOUR SEED PHRASE               ║");
+                    println!("  ║    Keep it safe. Never share it with anyone.        ║");
+                    println!("  ╚══════════════════════════════════════════════════════╝");
+                    println!();
+                    println!("  {}", phrase);
+                    println!();
+                    println!("  Address : {}", address);
+                    println!("  Name    : {}", name);
+                    println!();
+                }
+                Err(e) => warn!(error = %e, "Mnemonic wallet creation failed"),
+            }
+        }
+
+        "recovermnemonic" => {
+            if parts.len() < 3 {
+                warn!("Usage: recovermnemonic <name> <word1 word2 ... word12>");
+                return;
+            }
+            let name   = parts[1];
+            let phrase = parts[2..].join(" ");
+            let mut wm = wallet_manager.lock().unwrap();
+            match wm.recover_from_mnemonic(name, &phrase) {
+                Ok(address) => {
+                    info!(name, address = %address, "Wallet recovered from mnemonic");
+                    println!("  Recovered address: {}", address);
+                }
+                Err(e) => warn!(error = %e, "Mnemonic recovery failed"),
+            }
+        }
+
+        "savewallet" => {
+            if parts.len() < 3 {
+                warn!("Usage: savewallet <name> <password>");
+                return;
+            }
+            let name     = parts[1];
+            let password = parts[2];
+            let wm       = wallet_manager.lock().unwrap();
+            match wm.save_encrypted(name, password) {
+                Ok(_)  => {
+                    info!(name, "Wallet saved (AES-256-GCM encrypted)");
+                    println!("  Saved: {}/wallets/{}.aes", wm.data_dir(), name);
+                }
+                Err(e) => warn!(error = %e, "Save failed"),
+            }
+        }
+
+        "loadwallet" => {
+            if parts.len() < 3 {
+                warn!("Usage: loadwallet <name> <password>");
+                return;
+            }
+            let name     = parts[1];
+            let password = parts[2];
+            let mut wm   = wallet_manager.lock().unwrap();
+            match wm.load_encrypted(name, password) {
+                Ok(address) => {
+                    info!(name, address = %address, "Wallet loaded from encrypted file");
+                    println!("  Loaded address: {}", address);
+                }
+                Err(e) => warn!(error = %e, "Load failed — wrong password or file not found"),
+            }
+        }
+
         "selectwallet" => {
-            if parts.len() < 2 { warn!("Usage: selectwallet <n>"); return; }
+            if parts.len() < 2 { warn!("Usage: selectwallet <name>"); return; }
             let mut wm = wallet_manager.lock().unwrap();
             match wm.select_wallet(parts[1]) {
                 Ok(_)  => info!(name = parts[1], "Active wallet changed"),
@@ -512,7 +586,7 @@ async fn handle_command(
         }
 
         "exportwallet" => {
-            if parts.len() < 2 { warn!("Usage: exportwallet <n> [wif|json]"); return; }
+            if parts.len() < 2 { warn!("Usage: exportwallet <name> [wif|json]"); return; }
             let name   = parts[1];
             let format = if parts.len() == 3 { parts[2] } else { "json" };
             let wm     = wallet_manager.lock().unwrap();

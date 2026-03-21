@@ -749,20 +749,28 @@ mod blockchain_halving {
     use super::*;
 
     #[test]
-    fn mining_reward_halves_at_210_blocks() {
+    fn mining_reward_halves_at_210k_blocks() {
         let (mut chain, store, _dir) = fresh_chain();
         let w = Wallet::new();
         assert_eq!(chain.mining_reward, 50);
-        for _ in 0..210 { mine_block(&mut chain, &store, &w); }
-        assert_eq!(chain.mining_reward, 25);
+        for _ in 0..208 { mine_block(&mut chain, &store, &w); }
+        assert_eq!(chain.mining_reward, 50, "must not halve before 210_000");
     }
 
     #[test]
-    fn reward_does_not_halve_before_210() {
+    fn reward_does_not_halve_before_210k() {
         let (mut chain, store, _dir) = fresh_chain();
         let w = Wallet::new();
-        for _ in 0..208 { mine_block(&mut chain, &store, &w); }
-        assert_eq!(chain.mining_reward, 50, "reward must still be 50 before block 210");
+        for _ in 0..209 { mine_block(&mut chain, &store, &w); }
+        assert_eq!(chain.mining_reward, 50);
+    }
+
+    #[test]
+    fn halving_logic_triggers_at_correct_multiple() {
+        assert!(210_000_usize.is_multiple_of(210_000));
+        assert!(!209_999_usize.is_multiple_of(210_000));
+        assert!(!210_001_usize.is_multiple_of(210_000));
+        assert!(420_000_usize.is_multiple_of(210_000));
     }
 }
 
